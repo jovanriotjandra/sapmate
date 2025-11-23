@@ -15,6 +15,7 @@ import 'package:sound_stream/sound_stream.dart';
 import 'dart:typed_data';
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:convert';
 
 const String weatherApiKey = "4d9653b43b1120f76945ef145222616b";
 
@@ -118,17 +119,100 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int currentIndex = 0;
+  bool isOptimalModeOn = true;
 
-  final List<Widget> _pages = [
-    _HomeContent(),
-    DashboardPage(),
-    DevicesPage(),
-    AIAgentPage(),
-    SettingsPage(),
-  ];
+  String currentLocation = "Garching";
+  double temperature = 16.0;
+  double brightness = 0.0;
+  double humidity = 70.0;
+
+  // Pending changes from preferences (for when optimal mode is OFF)
+  double pendingTemperature = 22.0;
+  double pendingBrightness = 80.0;
+  double pendingHumidity = 45.0;
+
+  // Optimal home settings (for when optimal mode is ON)
+  final double optimalTemperature = 22.0;
+  final double optimalBrightness = 80.0;
+  final double optimalHumidity = 45.0;
+
+  void _updateHomeSettings() {
+    setState(() {
+      if (isOptimalModeOn) {
+        // Use optimal settings
+        temperature = optimalTemperature;
+        brightness = optimalBrightness;
+        humidity = optimalHumidity;
+      } else {
+        // Use preference settings
+        temperature = pendingTemperature;
+        brightness = pendingBrightness;
+        humidity = pendingHumidity;
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final List<Widget> _pages = [
+      _HomeContent(
+        isOptimalModeOn: isOptimalModeOn,
+        onOptimalModeChanged: (value) {
+          setState(() {
+            isOptimalModeOn = value;
+            if (value && currentIndex == 1) {
+              currentIndex = 0;
+            }
+            // If we're at home, update settings based on new optimal mode state
+            if (currentLocation == "Studentenstadt") {
+              _updateHomeSettings();
+            }
+          });
+        },
+        currentLocation: currentLocation,
+        temperature: temperature,
+        brightness: brightness,
+        humidity: humidity,
+        onLocationChange: () {
+          setState(() {
+            if (currentLocation == "Garching") {
+              // Going home
+              currentLocation = "Studentenstadt";
+              _updateHomeSettings();
+            } else {
+              // Going to work
+              currentLocation = "Garching";
+              temperature = 16.0;
+              brightness = 0.0;
+              humidity = 70.0;
+            }
+          });
+        },
+      ),
+      DashboardPage(
+        isOptimalModeOn: isOptimalModeOn,
+        temperature: pendingTemperature,
+        brightness: pendingBrightness,
+        humidity: pendingHumidity,
+        onValuesChanged: (temp, bright, humid) {
+          setState(() {
+            pendingTemperature = temp;
+            pendingBrightness = bright;
+            pendingHumidity = humid;
+            // If we're at home AND optimal mode is OFF, apply changes immediately
+            if (currentLocation == "Studentenstadt" && !isOptimalModeOn) {
+              temperature = temp;
+              brightness = bright;
+              humidity = humid;
+            }
+          });
+        },
+      ),
+      DevicesPage(),
+      AIAgentPage(),
+      SettingsPage(),
+    ];
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
       body: _pages[currentIndex],
@@ -144,6 +228,17 @@ class _HomePageState extends State<HomePage> {
         ],
         currentIndex: currentIndex,
         onTap: (int index) {
+          // Block navigation to Preferences (index 1) if optimal mode is on
+          if (index == 1 && isOptimalModeOn) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text("Turn off Optimal Mode to access Preferences"),
+                backgroundColor: Colors.orange[700],
+                duration: const Duration(seconds: 2),
+              ),
+            );
+            return;
+          }
           setState(() {
             currentIndex = index;
           });
@@ -153,15 +248,24 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class _HomeContent extends StatefulWidget {
-  const _HomeContent();
+class _HomeContent extends StatelessWidget {
+  final bool isOptimalModeOn;
+  final ValueChanged<bool> onOptimalModeChanged;
+  final String currentLocation;
+  final double temperature;
+  final double brightness;
+  final double humidity;
+  final VoidCallback onLocationChange;
 
-  @override
-  State<_HomeContent> createState() => _HomeContentState();
-}
-
-class _HomeContentState extends State<_HomeContent> {
-  bool isOptimalModeOn = true; // Add this state variable
+  const _HomeContent({
+    required this.isOptimalModeOn,
+    required this.onOptimalModeChanged,
+    required this.currentLocation,
+    required this.temperature,
+    required this.brightness,
+    required this.humidity,
+    required this.onLocationChange,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -185,7 +289,7 @@ class _HomeContentState extends State<_HomeContent> {
                     backgroundImage: NetworkImage(
                         'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png'),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 15),
                   Expanded(
                     child: Text(
                       "Welcome Back, John",
@@ -215,13 +319,13 @@ class _HomeContentState extends State<_HomeContent> {
                 title: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      "AI Assistant's",
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        color: Colors.grey[800],
-                      ),
-                    ),
+                    // Text(
+                    //   "AI Assistant's",
+                    //   style: GoogleFonts.inter(
+                    //     fontSize: 14,
+                    //     color: Colors.grey[800],
+                    //   ),
+                    // ),
                     const SizedBox(height: 4),
                     Text(
                       "Optimal Mode",
@@ -235,12 +339,14 @@ class _HomeContentState extends State<_HomeContent> {
                 value: isOptimalModeOn,
                 activeColor: Colors.blue[400],
                 onChanged: (value) {
-                  setState(() {
-                    isOptimalModeOn = value;
-                  });
+                  onOptimalModeChanged(value);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text("Optimal Mode is toggled ${value ? "on" : "off"}"),
+                      content: Text(
+                          value
+                              ? "Optimal Mode is on - Preferences locked"
+                              : "Optimal Mode is off - Preferences unlocked"
+                      ),
                     ),
                   );
                 },
@@ -248,7 +354,7 @@ class _HomeContentState extends State<_HomeContent> {
             ),
             const SizedBox(height: 16),
 
-            // Environment / Devices card
+            // Environment card
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -268,20 +374,20 @@ class _HomeContentState extends State<_HomeContent> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      Icon(
-                        Icons.arrow_drop_down,
-                        color: Colors.grey[800],
-                        size: 30,
-                      ),
+                      // Icon(
+                      //   Icons.arrow_drop_down,
+                      //   color: Colors.grey[800],
+                      //   size: 30,
+                      // ),
                     ],
                   ),
                   const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _buildDeviceColumn(Icons.thermostat_outlined, "22°C", "For me"),
-                      _buildDeviceColumn(Icons.whatshot, "Heating", "ON"),
-                      _buildDeviceColumn(Icons.tv, "TV", "Netflix"),
+                      _buildDeviceColumn(Icons.thermostat_outlined, "Temperature", "${temperature.toStringAsFixed(0)}°C"),
+                      _buildDeviceColumn(Icons.lightbulb_outline_rounded, "Brightness", "${brightness.toStringAsFixed(0)}%"),
+                      _buildDeviceColumn(Icons.water_drop_outlined, "Humidity", "${humidity.toStringAsFixed(0)}%")
                     ],
                   ),
                 ],
@@ -326,38 +432,41 @@ class _HomeContentState extends State<_HomeContent> {
 
             // Weather Widget
             const SizedBox(height: 16),
-            const WeatherWidget(),
+            WeatherWidget(location: currentLocation),
 
             // Map Widget
             const SizedBox(height: 16),
-            const MapWidget(),
+            MapWidget(location: currentLocation),
+
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: onLocationChange,
+                icon: Icon(
+                  currentLocation == "Garching" ? Icons.home : Icons.work,
+                  color: Colors.white,
+                ),
+                label: Text(
+                  currentLocation == "Garching" ? "Close to home" : "Back to work",
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue[400],
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildStatusColumn(IconData icon, Color color, String title, String value) {
-    return Column(
-      children: [
-        Icon(icon, color: color, size: 32),
-        const SizedBox(height: 8),
-        Text(
-          title,
-          style: GoogleFonts.inter(
-            fontSize: 12,
-            color: Colors.grey[600],
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: GoogleFonts.inter(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
     );
   }
 
@@ -387,31 +496,54 @@ class _HomeContentState extends State<_HomeContent> {
 }
 
 class WeatherWidget extends StatefulWidget {
-  const WeatherWidget({super.key});
+  final String location;
+
+  const WeatherWidget({super.key, required this.location});
 
   @override
   State<WeatherWidget> createState() => _WeatherWidgetState();
 }
 
 class _WeatherWidgetState extends State<WeatherWidget> {
-  // api key
   final _weatherService = WeatherService('4d9653b43b1120f76945ef145222616b');
   Weather? _weather;
 
-  // fetch weather
+  // fetch weather based on coordinates
   _fetchWeather() async {
-    String cityName = await _weatherService.getCurrentCity();
-
-    // get weather for city
     try {
-      final weather = await _weatherService.getWeather(cityName);
-      setState(() {
-        _weather = weather;
-      });
-    }
+      // Garching Forschungszentrum: 48.2649, 11.6703
+      // Studentenstadt U-Bahn: 48.1547, 11.5805
 
-    catch (e) {
+      final lat = widget.location == "Garching" ? 48.2649 : 48.1547;
+      final lon = widget.location == "Garching" ? 11.6703 : 11.5805;
+
+      // Fetch weather by coordinates instead of city name
+      final response = await http.get(
+          Uri.parse('https://api.openweathermap.org/data/2.5/weather?lat=$lat&lon=$lon&appid=$weatherApiKey&units=metric')
+      );
+
+      if (response.statusCode == 200) {
+        final weather = Weather.fromJson(jsonDecode(response.body));
+        setState(() {
+          _weather = weather;
+        });
+      }
+    } catch (e) {
       print(e);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchWeather();
+  }
+
+  @override
+  void didUpdateWidget(WeatherWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.location != widget.location) {
+      _fetchWeather();
     }
   }
 
@@ -437,12 +569,6 @@ class _WeatherWidgetState extends State<WeatherWidget> {
       default:
         return 'assets/sunny.json';
     }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _fetchWeather();
   }
 
   @override
@@ -511,7 +637,9 @@ class _WeatherWidgetState extends State<WeatherWidget> {
 }
 
 class MapWidget extends StatefulWidget {
-  const MapWidget({Key? key}) : super(key: key);
+  final String location;
+
+  const MapWidget({Key? key, required this.location}) : super(key: key);
 
   @override
   State<MapWidget> createState() => _MapWidgetState();
@@ -527,72 +655,54 @@ class _MapWidgetState extends State<MapWidget> {
   @override
   void initState() {
     super.initState();
-    _getCurrentLocation();
+    _setMockLocation();
   }
 
-  Future<void> _getCurrentLocation() async {
-    debugPrint('🗺️ Starting location fetch...');
+  void _setMockLocation() {
+    // Garching Forschungszentrum: 48.2649, 11.6703
+    // Studentenstadt U-Bahn: 48.1547, 11.5805
 
-    try {
-      bool serviceEnabled;
-      loc.PermissionStatus permissionGranted;
+    final coords = widget.location == "Garching"
+        ? gm.LatLng(48.2649, 11.6703)
+        : gm.LatLng(48.1547, 11.5805);
 
-      serviceEnabled = await _location.serviceEnabled();
-      debugPrint('📍 Location service enabled: $serviceEnabled');
+    setState(() {
+      _currentPosition = coords;
+      _isLoading = false;
 
-      if (!serviceEnabled) {
-        serviceEnabled = await _location.requestService();
-        if (!serviceEnabled) {
-          setState(() => _isLoading = false);
-          return;
-        }
-      }
-
-      permissionGranted = await _location.hasPermission();
-      debugPrint('🔐 Permission status: $permissionGranted');
-
-      if (permissionGranted == loc.PermissionStatus.denied) {
-        permissionGranted = await _location.requestPermission();
-        if (permissionGranted != loc.PermissionStatus.granted) {
-          setState(() => _isLoading = false);
-          return;
-        }
-      }
-
-      debugPrint('📡 Fetching location data...');
-      loc.LocationData locationData = await _location.getLocation();
-
-      debugPrint('✅ Location received:');
-      debugPrint('   Latitude: ${locationData.latitude}');
-      debugPrint('   Longitude: ${locationData.longitude}');
-
-      setState(() {
-        _currentPosition = gm.LatLng(
-          locationData.latitude!,
-          locationData.longitude!,
-        );
-        _isLoading = false;
-      });
-
-      debugPrint('🎯 Current position set: $_currentPosition');
-
-      // Move camera if controller is ready
-      if (_controller != null) {
-        debugPrint('📹 Animating camera to position');
-        await _controller!.animateCamera(
-          gm.CameraUpdate.newCameraPosition(
-            gm.CameraPosition(
-              target: _currentPosition!,
-              zoom: 17.0,
-            ),
+      _markers.clear();
+      _markers.add(
+        gm.Marker(
+          markerId: gm.MarkerId('current_location'),
+          position: coords,
+          icon: gm.BitmapDescriptor.defaultMarkerWithHue(gm.BitmapDescriptor.hueRed),
+          infoWindow: gm.InfoWindow(
+            title: widget.location == "Garching" ? "Work" : "Home",
           ),
-        );
-      } else {
-        debugPrint('⚠️ Controller not ready yet');
-      }
-    } catch (e) {
-      debugPrint('❌ Error getting location: $e');
-      setState(() => _isLoading = false);
+        ),
+      );
+    });
+  }
+
+  @override
+  void didUpdateWidget(MapWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.location != widget.location) {
+      _setMockLocation();
+      _animateToCurrentPosition();
+    }
+  }
+
+  Future<void> _animateToCurrentPosition() async {
+    if (_controller != null && _currentPosition != null) {
+      await _controller!.animateCamera(
+        gm.CameraUpdate.newCameraPosition(
+          gm.CameraPosition(
+            target: _currentPosition!,
+            zoom: 17.0,
+          ),
+        ),
+      );
     }
   }
 
@@ -654,15 +764,29 @@ class _MapWidgetState extends State<MapWidget> {
 }
 
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
+  final bool isOptimalModeOn;
+  final double temperature;
+  final double brightness;
+  final double humidity;
+  final Function(double, double, double) onValuesChanged;
+
+  const DashboardPage({
+    super.key,
+    required this.isOptimalModeOn,
+    required this.temperature,
+    required this.brightness,
+    required this.humidity,
+    required this.onValuesChanged,
+  });
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  double temperature = 22;
-  double lightingLevel = 50;
+  // double temperature = 22;
+  // double lightingLevel = 50;
+  // double humidityLevel = 50;
 
   // Instead of a single selected device, we use a map to track device states
   Map<String, bool> connectedDevices = {
@@ -674,6 +798,46 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    // If optimal mode is on, show a locked screen
+    if (widget.isOptimalModeOn) {
+      return SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.lock,
+                  size: 80,
+                  color: Colors.grey[400],
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  "Preferences Locked",
+                  style: GoogleFonts.inter(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[800],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  "Turn off Optimal Mode to customize your preferences",
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Normal preferences page when optimal mode is off
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -698,22 +862,20 @@ class _DashboardPageState extends State<DashboardPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "${temperature.toStringAsFixed(0)}°C",
+                    "${widget.temperature.toStringAsFixed(0)}°C",
                     style: const TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   Slider(
-                    value: temperature,
+                    value: widget.temperature,
                     min: 16,
                     max: 30,
                     divisions: 14,
-                    label: "${temperature.toStringAsFixed(0)}°C",
+                    label: "${widget.temperature.toStringAsFixed(0)}°C",
                     onChanged: (value) {
-                      setState(() {
-                        temperature = value;
-                      });
+                      widget.onValuesChanged(value, widget.brightness, widget.humidity);
                     },
                   ),
                 ],
@@ -728,22 +890,47 @@ class _DashboardPageState extends State<DashboardPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "${lightingLevel.toStringAsFixed(0)}%",
+                    "${widget.brightness.toStringAsFixed(0)}%",
                     style: const TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   Slider(
-                    value: lightingLevel,
+                    value: widget.brightness,
                     min: 0,
                     max: 100,
                     divisions: 20,
-                    label: "${lightingLevel.toStringAsFixed(0)}%",
+                    label: "${widget.brightness.toStringAsFixed(0)}%",
                     onChanged: (value) {
-                      setState(() {
-                        lightingLevel = value;
-                      });
+                      widget.onValuesChanged(widget.temperature, value, widget.humidity);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            _buildCard(
+              title: "Humidity",
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "${widget.humidity.toStringAsFixed(0)}%",
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Slider(
+                    value: widget.humidity,
+                    min: 0,
+                    max: 100,
+                    divisions: 20,
+                    label: "${widget.humidity.toStringAsFixed(0)}%",
+                    onChanged: (value) {
+                      widget.onValuesChanged(widget.temperature, widget.brightness, value);
                     },
                   ),
                 ],
